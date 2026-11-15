@@ -1,11 +1,10 @@
 ---
-description: Check the records against the rules this industry lives under (the ones listed in docs/compliance.md) and report what is missing, late, or about to breach, with the rule cited.
+description: Run the twelve rules in docs/compliance.md against the records (permits, landing reports, receiving temperature, histamine, shellfish clearance, traceability, E-certs, allergen and origin labelling, cold store, use-by, settlement) and report what is breached, with the source.
 ---
 
-1. Read `docs/compliance.md`. Each rule has a name, the source it comes from, what a breach looks like in the data, and the SQL or command that finds it.
-2. Run each check. Use the CLI's `--json` output or a direct query through `scripts/lib/db.mjs`.
-3. Report as a table: rule, count, the worst example (name and days), the source. Order by severity: breached first, then due within 7 days, then clean.
-4. For anything breached, draft the fix the operator can approve: the record to update, the notice to send (draft to `drafts/`, never send), or the task to add.
-5. If a rule in `docs/compliance.md` is out of date, say so and stop. Do not guess at law. The operator confirms the rule, then you update the doc and the check together.
+1. Run `npm run seafood -- compliance` (or `compliance <rule>` for one).
+2. Report as a table: rule, count, the worst example, the source. Breached first.
+3. For each breach, give the fix the CLI prints and who does it. Draft any letter to `drafts/`; never send.
+4. If a rule in `docs/compliance.md` no longer matches the operator's RMP or the law, say so and stop. Do not guess at law. The operator confirms the rule, then you update the doc and the check in `scripts/seafood.mjs` together.
 
 Nothing here is legal advice. The doc records the rules the operator has told the system to enforce, with sources, and this command checks the data against them.

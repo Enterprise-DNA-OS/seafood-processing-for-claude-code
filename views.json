@@ -1,13 +1,53 @@
 [
   {
-    "name": "week",
-    "title": "This week",
-    "subtitle": "Seafood Processing for Claude Code: what needs attention, rendered by npm run view",
+    "name": "processor-board",
+    "title": "The processor board",
+    "subtitle": "Seafood Processing for Claude Code: what needs a decision, fish on the floor, open orders and the cold store. Rendered by npm run view.",
     "sections": [
       {
-        "title": "Needs attention",
-        "note": "TODO(author): point this at the industry's attention view (overdue, stuck, quiet).",
-        "sql": "select 'replace me' as item, 'TODO(author)' as why"
+        "title": "Needs a decision",
+        "note": "Food safety and legal holds first: held landings, histamine, shellfish without clearance. Then what blocks a dispatch, then condition and money.",
+        "sql": "select case reason when 'landing_held' then 'HELD at the door' when 'histamine_over' then 'HISTAMINE over the limit' when 'shellfish_no_clearance' then 'Shellfish with no area clearance' when 'histamine_missing' then 'No histamine result: cannot dispatch' when 'ecert_missing' then 'Export with no E-cert: cannot leave' when 'coolstore_out_of_range' then 'Cold store OUT OF RANGE' when 'use_by_passed' then 'Past use-by in store' when 'permit_expired' then 'Fisher permit EXPIRED' when 'order_late' then 'Order past its required date' when 'landing_unprocessed' then 'Fish waiting for the line' when 'yield_low' then 'Yield under standard' when 'use_by_close' then 'Use-by inside two days' when 'landing_unpriced' then 'No price: cannot settle' when 'coolstore_quiet' then 'Cold store check overdue' when 'permit_expiring' then 'Fisher permit expiring' else reason end as what, label as record, who, detail from v_attention order by array_position(array['landing_held','histamine_over','shellfish_no_clearance','histamine_missing','ecert_missing','coolstore_out_of_range','use_by_passed','permit_expired','order_late','landing_unprocessed','yield_low','use_by_close','landing_unpriced','coolstore_quiet','permit_expiring'], reason), days desc nulls last"
+      },
+      {
+        "title": "Fish on the floor",
+        "note": "Received or held, not yet through the line. Fish is condition and condition is money.",
+        "sql": "select ref as lot, to_char(landed_on, 'YYYY-MM-DD') as landed, vessel, fisher, species, kg, coalesce(receive_temp_c || ' C', '') as received_at, case when temp_breach then 'OVER LIMIT' else '' end as temp, case when bivalve then coalesce(shellfish_clearance_ref, 'NO CLEARANCE') else '' end as area_clearance, upper(status) as status, coalesce(hold_reason, '') as hold_reason from v_landings where status in ('received', 'held') order by status desc, landed_on"
+      },
+      {
+        "title": "Open orders",
+        "note": "An export order does not dispatch without its E-cert reference, and no scombroid case leaves without a histamine result. There is no force flag.",
+        "sql": "select ref as order, customer, case when export then 'EXPORT ' || coalesce(destination, '') else 'domestic' end as type, to_char(required_on, 'YYYY-MM-DD') as required, kg_ordered as ordered_kg, kg_allocated as allocated_kg, case when export then coalesce(ecert_ref, 'MISSING') else '' end as e_cert, case when cases_untested > 0 then cases_untested || ' untested' else '' end as histamine, round(invoice_value, 2) as value_at_catch_weight from v_orders where status = 'open' order by required_on"
+      },
+      {
+        "title": "The cold store",
+        "note": "The temperature record is what the RMP verifier reads. A quiet room is a gap in it.",
+        "sql": "select room, kind, target_min_c || ' to ' || target_max_c || ' C' as band, coalesce(last_temp_c || ' C', '') as last_reading, coalesce(round(hours_since) || 'h ago', 'NEVER') as checked, coalesce(checked_by, '') as by, cases_in_room as cases, state from v_coolstore order by case state when 'OUT OF RANGE' then 1 when 'NEVER CHECKED' then 2 when 'QUIET' then 3 else 4 end, room"
+      }
+    ]
+  },
+  {
+    "name": "registers",
+    "title": "The registers",
+    "subtitle": "Seafood Processing for Claude Code: yields, stock on hand, fisher permits and what is owed. Rendered by npm run view.",
+    "sections": [
+      {
+        "title": "Yields, last 30 days",
+        "note": "Against your own standard per species. A run five points under is flagged on the attention list.",
+        "sql": "select ref as run, to_char(run_on, 'YYYY-MM-DD') as run_on, landing_ref as lot, species, vessel, input_kg as in_kg, output_kg as out_kg, yield_pct || '%' as yield, coalesce(standard_yield_pct || '%', '') as standard, yield_gap as gap from v_runs where run_on > current_date - 30 order by run_on desc"
+      },
+      {
+        "title": "Stock on hand",
+        "sql": "select product_code as product, product as description, storage, count(*) as cases, sum(net_kg) as kg, count(*) filter (where order_id is null) as unallocated, to_char(min(use_by), 'YYYY-MM-DD') as first_use_by, string_agg(distinct coalesce(room, ''), ', ') as rooms from v_cases where status = 'in_store' group by product_code, product, storage order by storage, product_code"
+      },
+      {
+        "title": "Fisher permits and money owed",
+        "note": "A licensed fish receiver buys only from a current permit holder.",
+        "sql": "select code, name as fisher, coalesce(permit_no, 'NONE') as permit, coalesce(to_char(permit_expires_on, 'YYYY-MM-DD'), '') as expires, permit as state, kg_30d as kg_last_30_days, round(owed_unsettled, 2) as owed_not_settled from v_fishers where status = 'active' order by case permit when 'EXPIRED' then 1 when 'NONE' then 2 when 'expiring' then 3 else 4 end, name"
+      },
+      {
+        "title": "Settlements",
+        "sql": "select ref, fisher, to_char(period_to, 'YYYY-MM-DD') as period_to, landings as lots, kg, round(gross, 2) as gross, round(deductions, 2) as deductions, round(net, 2) as net, status from v_settlements order by period_to desc"
       }
     ]
   }

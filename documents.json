@@ -1,11 +1,81 @@
 [
   {
-    "name": "example",
-    "title": "TODO(author): the first document this industry must produce",
-    "for_each": "select gen_random_uuid() as id, 'Example' as name",
+    "name": "fisher-settlement-statement",
+    "title": "Fisher settlement statement",
+    "for_each": "select s.settlement_id as id, (s.ref || ' ' || s.fisher) as name from v_settlements s order by s.period_to desc",
     "file": "name",
     "sections": [
-      { "title": "Details", "sql": "select 'replace me' as item, $1::text as record_id" }
+      {
+        "title": "Settlement",
+        "layout": "record",
+        "sql": "select s.ref as settlement, s.fisher, f.permit_no as permit, to_char(s.period_to, 'DD Month YYYY') as landings_to, s.status, coalesce(to_char(s.paid_on, 'DD Month YYYY'), 'not yet paid') as paid_on, s.landings as lots, s.kg as total_kg, round(s.gross, 2) as gross, round(s.deductions, 2) as deductions, round(s.net, 2) as net_payable from v_settlements s join fishers f on f.id = s.fisher_id where s.settlement_id = $1"
+      },
+      {
+        "title": "The fish behind it",
+        "note": "Each lot at its agreed price per kg, less the agreed per kg deduction.",
+        "sql": "select l.ref as lot, to_char(l.landed_on, 'YYYY-MM-DD') as landed, l.vessel, l.species, l.kg, l.price_per_kg, l.gross, l.deductions, l.net from v_settlement_lines l where l.settlement_id = $1 order by l.landed_on, l.ref"
+      }
+    ]
+  },
+  {
+    "name": "dispatch-docket",
+    "title": "Dispatch docket and packing list",
+    "for_each": "select o.order_id as id, (o.ref || ' ' || o.customer) as name from v_orders o where o.cases > 0 order by o.created_on desc",
+    "file": "name",
+    "sections": [
+      {
+        "title": "The order",
+        "layout": "record",
+        "sql": "select o.ref as order, o.customer, o.country, case when o.export then 'EXPORT' else 'domestic' end as type, coalesce(o.destination, '') as destination, case when o.export then coalesce(o.ecert_ref, 'NOT YET ON RECORD') else 'not required' end as e_cert, coalesce(o.carrier, '') as carrier, coalesce(to_char(o.required_on, 'DD Month YYYY'), '') as required, coalesce(to_char(o.dispatched_on, 'DD Month YYYY'), 'not dispatched') as dispatched, o.cases, o.kg_allocated as net_kg, round(o.invoice_value, 2) as value_at_catch_weight from v_orders o where o.order_id = $1"
+      },
+      {
+        "title": "By product",
+        "sql": "select c.product_code as product, c.product as description, count(*) as cases, sum(c.net_kg) as net_kg, ol.price_per_kg, round(sum(c.net_kg) * ol.price_per_kg, 2) as value from v_cases c left join order_lines ol on ol.order_id = c.order_id and ol.product_id = c.product_id where c.order_id = $1 group by c.product_code, c.product, ol.price_per_kg order by c.product_code"
+      },
+      {
+        "title": "Every case, traceable one step back",
+        "note": "Case to run to lot to vessel and catch area. The trace a recall asks for is this table.",
+        "sql": "select c.case_no as case, c.product_code as product, c.net_kg, to_char(c.packed_on, 'YYYY-MM-DD') as packed, to_char(c.use_by, 'YYYY-MM-DD') as use_by, c.landing_ref as lot, c.vessel, coalesce(c.stat_area, '') as area, case when c.scombroid then coalesce(c.histamine_mg_kg::text || ' mg/kg', 'NOT TESTED') else '' end as histamine from v_cases c where c.order_id = $1 order by c.case_no"
+      }
+    ]
+  },
+  {
+    "name": "lot-trace-report",
+    "title": "Lot trace report",
+    "for_each": "select l.landing_id as id, (l.ref || ' ' || l.species || ' ' || l.vessel) as name from v_landings l where l.status <> 'rejected' order by l.landed_on desc",
+    "file": "name",
+    "sections": [
+      {
+        "title": "One step back",
+        "layout": "record",
+        "sql": "select l.ref as lot, l.species, l.kg, to_char(l.landed_on, 'DD Month YYYY') as landed, l.vessel, l.method, l.fisher, coalesce(l.permit_no, 'NONE') as permit, coalesce(l.trip_ref, '') as trip, coalesce(l.stat_area, '') as area, coalesce(l.landing_report_ref, 'MISSING') as landing_report, coalesce(l.receive_temp_c || ' C', 'not recorded') as received_at, case when l.scombroid then coalesce(l.histamine_mg_kg || ' mg/kg', 'NOT TESTED') else 'not required' end as histamine, case when l.bivalve then coalesce(l.shellfish_clearance_ref, 'NONE') else 'not required' end as area_clearance, l.status from v_landings l where l.landing_id = $1"
+      },
+      {
+        "title": "The runs",
+        "sql": "select r.ref as run, to_char(r.run_on, 'YYYY-MM-DD') as run_on, r.input_kg, r.output_kg, r.cases, r.yield_pct || '%' as yield from v_runs r where r.landing_id = $1 order by r.run_on"
+      },
+      {
+        "title": "One step forward",
+        "note": "Every case from this lot and where it is now. In a recall, this is who to ring.",
+        "sql": "select coalesce(c.order_ref, '(in store)') as order, coalesce(cu.name, '') as customer, coalesce(o.destination, '') as destination, c.status, count(*) as cases, sum(c.net_kg) as net_kg, coalesce(to_char(max(o.dispatched_on), 'YYYY-MM-DD'), '') as dispatched from v_cases c left join orders o on o.id = c.order_id left join customers cu on cu.id = o.customer_id where c.landing_id = $1 group by c.order_ref, cu.name, o.destination, c.status order by c.order_ref nulls last"
+      }
+    ]
+  },
+  {
+    "name": "cold-store-register",
+    "title": "Cold store temperature register",
+    "for_each": "select r.id, (r.name || ' temperature register') as name from coolrooms r where r.status = 'active' order by r.name",
+    "file": "name",
+    "sections": [
+      {
+        "title": "The room",
+        "layout": "record",
+        "sql": "select r.name as room, r.kind, r.target_min_c || ' to ' || r.target_max_c || ' C' as band, (select count(*) from cases c where c.room = r.name and c.status = 'in_store') as cases_in_room, to_char(current_date, 'DD Month YYYY') as printed_on from coolrooms r where r.id = $1"
+      },
+      {
+        "title": "The last 14 days of checks",
+        "sql": "select to_char(t.checked_at, 'YYYY-MM-DD HH24:MI') as checked_at, t.temp_c || ' C' as reading, case when t.temp_c < r.target_min_c or t.temp_c > r.target_max_c then 'OUT OF RANGE' else 'ok' end as state, coalesce(t.checked_by, '') as by, coalesce(t.note, '') as corrective_action from temp_checks t join coolrooms r on r.id = t.room_id where t.room_id = $1 and t.checked_at > now() - interval '14 days' order by t.checked_at desc"
+      }
     ]
   }
 ]

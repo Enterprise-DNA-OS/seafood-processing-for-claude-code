@@ -1,9 +1,9 @@
 {
-  "_": "Your business on every document and view. Change these and run `npm run docs` or `npm run view`.",
-  "business_name": "Your Business",
+  "_": "Your business on every statement, docket and register. Change these and run `npm run docs` or `npm run view`.",
+  "business_name": "Tasman Bay Seafoods Ltd (demo)",
   "logo_path": "",
-  "primary": "#6654f5",
-  "accent": "#ca5a8b",
+  "primary": "#0e5a7a",
+  "accent": "#d9822b",
   "ink": "#0b0c18",
   "paper": "#ffffff",
   "footer_line": "Prepared with Seafood Processing for Claude Code."
